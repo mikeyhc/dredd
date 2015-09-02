@@ -1,0 +1,12 @@
+{application, dredd,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib
+                 ]},
+  {mod, { dredd_app, []}},
+  {env, []}
+ ]}.
