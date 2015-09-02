@@ -1,0 +1,2 @@
+# dredd
+Dredd IRC Bot
