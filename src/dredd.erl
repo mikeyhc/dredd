@@ -64,8 +64,8 @@ handle_message(Conn=#connection{registered=false, pid=Pid}, Msg, State) ->
     NewConn = register(Conn),
     NewConns = lists:keyreplace(Pid, 2, State#state.connections, NewConn),
     handle_message(NewConn, Msg, State#state{connections=NewConns});
-handle_message(Conn, Msg, State) ->
-    io:format("~s: ~s~n", [Conn#connection.host, Msg]),
+handle_message(_Conn, Msg, State) ->
+    io:format("main thread got ~s~n", [dredd_irc:pretty(Msg)]),
     {noreply, State}.
 
 send_message(#connection{registered=true, pid=Pid}, Msg) ->

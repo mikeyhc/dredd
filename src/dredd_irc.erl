@@ -1,7 +1,7 @@
 -module(dredd_irc).
 
 %% connection operations (4.1)
--export([pass/2, nick/1, nick/2, user/3, oper/3, quit/1, quit/2]).
+-export([pass/1, nick/1, nick/2, user/3, oper/3, quit/1, quit/2]).
 
 %% channel operations (4.2)
 -export([join/2, join/3, part/2, mode/3, mode/4, mode/5, mode/6]).
@@ -27,28 +27,55 @@
 -export([away/1, away/2, rehash/1, restart/1, summon/2, summon/3]).
 -export([users/1, users/2, userhost/2, ison/2]).
 
+%% response parsing
+-export([parse_response/1, pretty/1]).
+
 -type irc_error_code() :: 401..407 | 409 | 411..414 | 421..424
                         | 431..433 | 436 | 441..446 | 451 | 461..465
                         | 467 | 471..475 | 481..483 | 491 | 501 | 502.
+
 -type irc_code() :: 200..206 | 208 | 211..216 | 218 | 219 | 221
                   | 241..244 | 251..259 | 261 | 300..303 | 305 | 306
                   | 311..315 | 317..319 | 321..324 | 331 | 332 | 341
                   | 342 | 351..353 | 364..369 | 371 | 372 | 374..376
                   | 381 | 382 | 391..395.
 
--record(irc_error, {code :: irc_error_code(),
-                    text :: string()
-                   }).
+-type irc_name() :: undefined | string().
 
--record(irc_reply, {code :: irc_code(),
-                    text :: string()
+-record(irc_error, {name = undefined :: irc_name(),
+                    code             :: irc_error_code(),
+                    target           :: string(),
+                    parts            :: [string()]
                    }).
+-opaque irc_error() :: #irc_error{}.
 
--record(irc_message, {text :: string()}).
+-record(irc_reply, {name   :: irc_name(),
+                    code   :: irc_code(),
+                    target :: string(),
+                    parts  :: [string()]
+                   }).
+-opaque irc_reply() :: #irc_reply{}.
+
+-record(irc_message, {name    :: irc_name(),
+                      channel :: string(),
+                      text    :: string()
+                     }).
+-opaque irc_message() :: #irc_message{}.
+
+-record(irc_ping, {name    :: string(),
+                   message :: string()}).
+-opaque irc_ping() :: #irc_ping{}.
+
+-record(irc_unknown, {name  :: string(),
+                      parts :: [string()]}).
+-opaque irc_unknown() :: #irc_unknown{}.
+
+-type irc_response() :: irc_error() | irc_reply() | irc_message()
+                      | irc_ping() | irc_unknown().
 
 %% API Functions
 %% connection operations
-pass(H, P) -> cmd(H, "PASS", P).
+pass(P) -> "PASS " ++ P.
 nick(N) -> "NICK " ++ N.
 nick(H, N) -> cmd(H, "NICK", N).
 user(H, N, FN) -> cmd(H, "USER", [N, "8", "*", ":" ++ FN]).
@@ -173,6 +200,41 @@ ison(H, [NH=[_|_]|NT]) ->
     cmd(H, "ISON", lists:foldl(fun r_space_join/2, NH, NT));
 ison(H, N) -> ison(H, [N]).
 
+%% response parsing
+-spec parse_response(string()) -> irc_response().
+parse_response([$:|Resp]) ->        % contains name
+    [Name|Tokens] = string:tokens(Resp, " "),       %% TODO: smarter split
+    add_name(parse_tokens(Tokens), Name);
+parse_response(Resp) -> parse_tokens(string:tokens(Resp, " ")).
+
+parse_tokens([Num=[NH|_],T|P]) when NH >= $4 andalso NH =< $5 ->
+    {Code, []} = string:to_integer(Num),
+    #irc_error{ code   = Code,
+                target = T,
+                parts  = P
+              };
+parse_tokens([Num=[NH|_],T|P]) when NH >= $2 andalso NH =< $3 ->
+    {Code, []} = string:to_integer(Num),
+    #irc_reply{ code   = Code,
+                target = T,
+                parts  = P
+              };
+parse_tokens(["PING",Msg]) -> #irc_ping{message = Msg};
+parse_tokens(["PRIVMSG",C,[$:|Msg]]) ->
+    #irc_message{ channel = C,
+                  text    = string:join(Msg, " ")
+                };
+parse_tokens(Parts) -> #irc_unknown{parts = Parts}.
+
+pretty(#irc_error{name=N, code=C, target=T, parts=P}) ->
+    io_lib:format("~s: ERROR(~w:~s) ~s", [N, C, T, string:join(P, " ")]);
+pretty(#irc_reply{name=N, code=C, target=T, parts=P}) ->
+    io_lib:format("~s: REPLY(~w:~s) ~s", [N, C, T, string:join(P, " ")]);
+pretty(#irc_message{name=N, channel=C, text=M}) ->
+    io_lib:format("~s: (~s) ~s", [N, C, M]);
+pretty(#irc_ping{name=N, message=M}) -> io_lib:format("~s: PING ~s", [N, M]);
+pretty(#irc_unknown{name=N, parts=P}) ->
+    io_lib:format("~s: UNKNOWN ~s", [N, string:join(P, " ")]).
 
 %% Helper Functions
 -spec join_with(char(), string(), string()) -> string().
@@ -191,3 +253,10 @@ cmd(Host, Cmd) -> ":" ++ Host ++ " " ++ Cmd.
 cmd(Host, Cmd, [H=[_|_]|T]) ->
     cmd(Host, Cmd) ++ " " ++ lists:foldl(fun r_space_join/2, H, T);
 cmd(Host, Cmd, Arg) -> cmd(Host, Cmd, [Arg]).
+
+-spec add_name(irc_response(), string()) -> irc_response().
+add_name(E=#irc_error{}, N) -> E#irc_error{name = N};
+add_name(R=#irc_reply{}, N) -> R#irc_reply{name = N};
+add_name(M=#irc_message{}, N) -> M#irc_message{name = N};
+add_name(P=#irc_ping{}, N) -> P#irc_ping{name = N};
+add_name(U=#irc_unknown{}, N) -> U#irc_unknown{name = N}.
