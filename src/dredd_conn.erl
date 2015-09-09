@@ -102,12 +102,11 @@ tcp_loop(State={_, Host, _, Sock, _, Pids}) ->
     case gen_tcp:recv(Sock, 0, 250) of
         {ok, Packet} ->
             AllMsgs = process_packet(Packet),
-            SendPings = fun({irc_ping, _, M}, Acc) ->
-                                io:format("got ping ~s~n", [M]),
-                                dredd_conn:send(self(),
-                                                dredd_irc:pong(Host, M)),
-                                Acc;
-                           (X, Acc) -> [X|Acc]
+            SendPings = fun(X, Acc) ->
+                                case dredd_irc:is_ping(X) of
+                                    true  -> ping_reply(Host, X), Acc;
+                                    false -> [X|Acc]
+                                end
                         end,
             Msgs = lists:reverse(lists:foldl(SendPings, [], AllMsgs)),
             SFun =  fun(X) ->
@@ -128,3 +127,8 @@ process_packet(Packet) ->
     lists:map(fun dredd_irc:parse_response/1,
               lists:filter(fun(X) -> X =/= [] end,
                            lists:map(fun lists:reverse/1, L))).
+
+%% reply to a ping
+ping_reply(Host, P) ->
+    io:format("got ping ~s~n", [dredd_irc:ping_message(P)]),
+    send(self(), dredd_irc:pong(Host, dredd_irc:ping_message(P))).

@@ -28,7 +28,14 @@
 -export([users/1, users/2, userhost/2, ison/2]).
 
 %% response parsing
--export([parse_response/1, pretty/1]).
+-export([parse_response/1, pretty/1, is_error/1, is_reply/1]).
+-export([is_message/1, is_ping/1]).
+
+%% message getters
+-export([message_name/1, message_channel/1, message_text/1]).
+
+%% ping getters
+-export([ping_name/1, ping_message/1]).
 
 -type irc_error_code() :: 401..407 | 409 | 411..414 | 421..424
                         | 431..433 | 436 | 441..446 | 451 | 461..465
@@ -220,9 +227,9 @@ parse_tokens([Num=[NH|_],T|P]) when NH >= $2 andalso NH =< $3 ->
                 parts  = P
               };
 parse_tokens(["PING",Msg]) -> #irc_ping{message = Msg};
-parse_tokens(["PRIVMSG",C,[$:|Msg]]) ->
+parse_tokens(["PRIVMSG",C,[$:|H]|T]) ->
     #irc_message{ channel = C,
-                  text    = string:join(Msg, " ")
+                  text    = string:join([H|T], " ")
                 };
 parse_tokens(Parts) -> #irc_unknown{parts = Parts}.
 
@@ -235,6 +242,27 @@ pretty(#irc_message{name=N, channel=C, text=M}) ->
 pretty(#irc_ping{name=N, message=M}) -> io_lib:format("~s: PING ~s", [N, M]);
 pretty(#irc_unknown{name=N, parts=P}) ->
     io_lib:format("~s: UNKNOWN ~s", [N, string:join(P, " ")]).
+
+is_error(#irc_error{}) -> true;
+is_error(_) -> false.
+
+is_reply(#irc_reply{}) -> true;
+is_reply(_) -> false.
+
+is_message(#irc_message{}) -> true;
+is_message(_) -> false.
+
+is_ping(#irc_ping{}) -> true;
+is_ping(_) -> false.
+
+%% message getters
+message_name(#irc_message{name=N}) -> N.
+message_channel(#irc_message{channel=C}) -> C.
+message_text(#irc_message{text=T}) -> T.
+
+%% ping getters
+ping_name(#irc_ping{name=N}) -> N.
+ping_message(#irc_ping{message=M}) -> M.
 
 %% Helper Functions
 -spec join_with(char(), string(), string()) -> string().

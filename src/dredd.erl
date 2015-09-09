@@ -41,7 +41,10 @@ send(Host, Msg) -> gen_server:cast(?MODULE, {send, Host, Msg}).
 
 init(_Args) -> {ok, #state{}}.
 terminate(_Reason, _State) -> ok. % TODO: terminate children
-code_change(_OldVsn, State, _Extra) -> {ok, State}.
+
+code_change(OldVsn, State, _Extra) ->
+    io:format("upgrading from version ~w~n", [OldVsn]),
+    {ok, State}.
 
 handle_call(_Message, _From, State) -> {noreply, State}.
 
@@ -64,14 +67,23 @@ handle_message(Conn=#connection{registered=false, pid=Pid}, Msg, State) ->
     NewConn = register(Conn),
     NewConns = lists:keyreplace(Pid, 2, State#state.connections, NewConn),
     handle_message(NewConn, Msg, State#state{connections=NewConns});
-handle_message(_Conn, Msg, State) ->
+handle_message(Conn, Msg, State) ->
     io:format("main thread got ~s~n", [dredd_irc:pretty(Msg)]),
+    case dredd_irc:is_message(Msg) of
+        true  -> handle_privmsg(Conn, Msg, State);
+        false -> ok
+    end,
     {noreply, State}.
 
 send_message(#connection{registered=true, pid=Pid}, Msg) ->
     dredd_conn:send(Pid, Msg);
 send_message(_, _) -> false.
 
+handle_privmsg(Conn, Msg, State) ->
+    % FIXME: just a simple test
+    Chan = dredd_irc:message_channel(Msg),
+    send_message(Conn, dredd_irc:privmsg("dredd", Chan, "I AM THE LAW")),
+    {noreply, State}.
 
 register(Conn=#connection{pid=Pid, nick=Nick}) ->
     NickMsg = io_lib:format("NICK ~s~n", [Nick]),
