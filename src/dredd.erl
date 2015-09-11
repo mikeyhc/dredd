@@ -76,7 +76,7 @@ handle_message(Conn=#connection{registered=false, pid=Pid}, Msg, State) ->
     NewConns = lists:keyreplace(Pid, 2, State#state.connections, NewConn),
     handle_message(NewConn, Msg, State#state{connections=NewConns});
 handle_message(Conn, Msg, State) ->
-    io:format("main thread got ~s~n", [dredd_irc:pretty(Msg)]),
+    io:format("M ~s~n", [dredd_irc:pretty(Msg)]),
     case dredd_irc:is_message(Msg) of
         true  -> handle_privmsg(Conn, Msg, State);
         false -> ok
@@ -96,7 +96,6 @@ handle_privmsg(Conn, Msg, State) ->
 handle_privmsg(Conn, Chan, _Text, Mesg, State)
   when Conn#connection.nick =:= Chan ->
     [SendChan|_] = string:tokens(dredd_irc:message_name(Mesg), "!"),
-    io:format("~s", [SendChan]),
     i_am_the_law(Conn, SendChan),
     {noreply, State};
 handle_privmsg(Conn, Chan, "dredd" ++ _Text, _Mesg, State) ->

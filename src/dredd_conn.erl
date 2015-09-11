@@ -28,8 +28,8 @@ register(Target, Pid) ->
 % send a message using Target dredd_conn
 send(Target, Message) ->
     case lists:reverse(Message) of
-        [$\n|_] -> Target ! {send, Message};
-        _       -> Target ! {send, Message ++ "\n"}
+        [10|_] -> Target ! {send, Message};
+        _      -> Target ! {send, Message ++ "\n"}
     end.
 
 % return the status of Target dredd_conn
@@ -89,7 +89,7 @@ message_loop(State={connected, Host, Port, Sock, Parent, Pids}) ->
             Pid ! {status, {connected, Host, Port}},
             dredd_conn:message_loop(State);
         {send, Message} ->
-            io:format("sending ~s~n", [Message]),
+            io:format("> ~s", [Message]),
             gen_tcp:send(Sock, Message),
             dredd_conn:message_loop(State);
         {InPid, register, Pid} ->
@@ -124,11 +124,13 @@ process_packet(Packet) ->
     L = lists:foldl(fun(X, Acc) when X =:= 10 -> [[]|Acc];
                        (X, [H|T]) -> [[X|H]|T]
                     end, [[]], Packet),
-    lists:map(fun dredd_irc:parse_response/1,
+    lists:map(fun(X) ->
+                      io:format("< ~s~n", [X]),
+                      dredd_irc:parse_response(X)
+              end,
               lists:filter(fun(X) -> X =/= [] end,
                            lists:map(fun lists:reverse/1, L))).
 
 %% reply to a ping
 ping_reply(Host, P) ->
-    io:format("got ping ~s~n", [dredd_irc:ping_message(P)]),
     send(self(), dredd_irc:pong(Host, dredd_irc:ping_message(P))).
