@@ -19,7 +19,7 @@ start_link() ->
 %% Supervisor callbacks
 
 init([]) ->
-    {ok, { {one_for_one, 5, 10},
+    {ok, { {one_for_all, 5, 10},
            [ ?CHILD(dredd, worker),
              ?CHILD(dredd_conn_sup, supervisor)
            ]} }.

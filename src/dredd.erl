@@ -13,6 +13,11 @@
 %% default values
 -define(NICK, "dredd").
 
+% types
+% the timestamp() type is copied from the erlang module
+% see: http://www.erlang.org/doc/man/erlang.html
+-type timestamp() :: {pos_integer(), pos_integer(), pos_integer()}.
+
 %% records
 -record(connection, { pid               :: pid(),
                       host              :: string(),
@@ -20,7 +25,9 @@
                       nick              :: string(),
                       registered=false  :: boolean()
                     }).
--record(state, {connections = [] :: [{pid(), string(), integer()}]
+-record(state, {connections = [] :: [{pid(), string(), integer()}],
+                plugins     = [] :: [{pid(), string()}],
+                start_time       :: timestamp()
                }).
 
 %% API
@@ -39,7 +46,8 @@ send(Host, Msg) -> gen_server:cast(?MODULE, {send, Host, Msg}).
 
 %% gen_server callbacks
 
-init(_Args) -> {ok, #state{}}.
+init(_Args) ->
+    {ok, #state{start_time = erlang:now()}}.
 terminate(_Reason, _State) -> ok. % TODO: terminate children
 
 code_change(OldVsn, State, _Extra) ->
@@ -82,8 +90,22 @@ send_message(_, _) -> false.
 handle_privmsg(Conn, Msg, State) ->
     % FIXME: just a simple test
     Chan = dredd_irc:message_channel(Msg),
-    send_message(Conn, dredd_irc:privmsg("dredd", Chan, "I AM THE LAW")),
-    {noreply, State}.
+    Text = dredd_irc:message_text(Msg),
+    handle_privmsg(Conn, Chan, Text, Msg, State).
+
+handle_privmsg(Conn, Chan, _Text, Mesg, State)
+  when Conn#connection.nick =:= Chan ->
+    [SendChan|_] = string:tokens(dredd_irc:message_name(Mesg), "!"),
+    io:format("~s", [SendChan]),
+    i_am_the_law(Conn, SendChan),
+    {noreply, State};
+handle_privmsg(Conn, Chan, "dredd" ++ _Text, _Mesg, State) ->
+    i_am_the_law(Conn, Chan),
+    {noreply, State};
+handle_privmsg(_, _, _, _, State) -> {noreply, State}.
+
+i_am_the_law(Conn, Chan) ->
+    send_message(Conn, dredd_irc:privmsg("dredd", Chan, "I AM THE LAW")).
 
 register(Conn=#connection{pid=Pid, nick=Nick}) ->
     NickMsg = io_lib:format("NICK ~s~n", [Nick]),
