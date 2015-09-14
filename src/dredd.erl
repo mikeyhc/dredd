@@ -27,7 +27,8 @@
                     }).
 -record(state, {connections = [] :: [{pid(), string(), integer()}],
                 plugins     = [] :: [{pid(), string()}],
-                start_time       :: timestamp()
+                start_time       :: timestamp(),
+                admins      = [] :: [string()]
                }).
 
 %% API
@@ -88,20 +89,56 @@ send_message(#connection{registered=true, pid=Pid}, Msg) ->
 send_message(_, _) -> false.
 
 handle_privmsg(Conn, Msg, State) ->
-    % FIXME: just a simple test
     Chan = dredd_irc:message_channel(Msg),
     Text = dredd_irc:message_text(Msg),
     handle_privmsg(Conn, Chan, Text, Msg, State).
 
-handle_privmsg(Conn, Chan, _Text, Mesg, State)
+handle_privmsg(Conn, Chan, "dredd", Mesg, State)
   when Conn#connection.nick =:= Chan ->
     [SendChan|_] = string:tokens(dredd_irc:message_name(Mesg), "!"),
     i_am_the_law(Conn, SendChan),
     {noreply, State};
-handle_privmsg(Conn, Chan, "dredd" ++ _Text, _Mesg, State) ->
+handle_privmsg(Conn, Chan, "dredd" ++ Text, Mesg, State)
+  when Conn#connection.nick =:= Chan ->
+    [SendChan|_] = string:tokens(dredd_irc:message_name(Mesg), "!"),
+    NewText = trim(Text),
+    if Text =/= false -> parse_message(NewText, Conn, SendChan, Mesg, State);
+       true           -> {noreply, State}
+    end;
+handle_privmsg(Conn, Chan,  Text, Mesg, State)
+  when Conn#connection.nick =:= Chan ->
+    [SendChan|_] = string:tokens(dredd_irc:message_name(Mesg), "!"),
+    NewText = trim_rem(Text),
+    parse_message(NewText, Conn, SendChan, Mesg, State);
+handle_privmsg(Conn, Chan, "dredd", _Mesg, State) ->
     i_am_the_law(Conn, Chan),
     {noreply, State};
+handle_privmsg(Conn, Chan, "dredd" ++ Text, Mesg, State) ->
+    NewText = trim(Text),
+    if NewText =/= false -> parse_message(NewText, Conn, Chan, Mesg, State);
+       true              -> {noreply, State}
+    end;
 handle_privmsg(_, _, _, _, State) -> {noreply, State}.
+
+parse_message("uptime", Conn, Chan, _Mesg, State) ->
+    % FIXME: no counting the mega seonds
+    {_, SS, _} = State#state.start_time,
+    {_, NS, _} = erlang:now(),
+    S = NS - SS,
+    Sec = S rem 60,
+    Rem = S div 60,
+    Min = Rem rem 60,
+    Hr = Rem div 60,
+    Str = if Min > 0 andalso Hr > 0 ->
+                io_lib:format("~wh ~wm ~ws", [Hr, Min, Sec]);
+             Min > 0 -> io_lib:format("~wm ~ws", [Min, Sec]);
+             true -> io_lib:format("~ws", [Sec])
+          end,
+    send_message(Conn, dredd_irc:privmsg("dredd", Chan, Str)),
+    {noreply, State};
+parse_message(_, Conn, Chan, _Mesg, State) ->
+    i_am_the_law(Conn, Chan),
+    {noreply, State}.
 
 i_am_the_law(Conn, Chan) ->
     send_message(Conn, dredd_irc:privmsg("dredd", Chan, "I AM THE LAW")).
@@ -112,3 +149,19 @@ register(Conn=#connection{pid=Pid, nick=Nick}) ->
     UserMsg = io_lib:format("USER ~s 8 * : Dredd Bot~n", [Nick]),
     dredd_conn:send(Pid, UserMsg),
     Conn#connection{registered=true}.
+
+trim([$:|T]) -> trim_rem(T);
+trim([$ |T]) -> trim_rem(T);
+trim(_)      -> false.
+
+trim_rem([$ |T]) -> trim_rem(T);
+trim_rem(T)      ->
+    R = lists:reverse(T),
+    DR = lists:dropwhile(fun isws/1, R),
+    lists:reverse(DR).
+
+isws($\n) -> true;
+isws($\t) -> true;
+isws($\r) -> true;
+isws($ ) -> true;
+isws(_) -> false.
