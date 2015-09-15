@@ -29,10 +29,13 @@
 
 %% response parsing
 -export([parse_response/1, pretty/1, is_error/1, is_reply/1]).
--export([is_message/1, is_ping/1]).
+-export([is_message/1, is_ping/1, is_general/1]).
 
 %% message getters
 -export([message_name/1, message_channel/1, message_text/1]).
+
+%% general getters
+-export([general_name/1, general_command/1, general_message/1]).
 
 %% ping getters
 -export([ping_name/1, ping_message/1]).
@@ -73,12 +76,17 @@
                    message :: string()}).
 -opaque irc_ping() :: #irc_ping{}.
 
+-record(irc_general, {name    :: string(),
+                      command :: string(),
+                      message :: string()}).
+-opaque irc_general() :: #irc_general{}.
+
 -record(irc_unknown, {name  :: string(),
                       parts :: [string()]}).
 -opaque irc_unknown() :: #irc_unknown{}.
 
 -type irc_response() :: irc_error() | irc_reply() | irc_message()
-                      | irc_ping() | irc_unknown().
+                      | irc_ping() | irc_general() | irc_unknown().
 
 %% API Functions
 %% connection operations
@@ -231,6 +239,10 @@ parse_tokens(["PRIVMSG",C,[$:|H]|T]) ->
     #irc_message{ channel = C,
                   text    = string:join([H|T], " ")
                 };
+parse_tokens(["JOIN"|Parts]) ->
+    #irc_general{ command = "JOIN",
+                  message = string:join(Parts, " ")
+                };
 parse_tokens(Parts) -> #irc_unknown{parts = Parts}.
 
 pretty(#irc_error{name=N, code=C, target=T, parts=P}) ->
@@ -240,6 +252,8 @@ pretty(#irc_reply{name=N, code=C, target=T, parts=P}) ->
 pretty(#irc_message{name=N, channel=C, text=M}) ->
     io_lib:format("~s: (~s) ~s", [N, C, M]);
 pretty(#irc_ping{name=N, message=M}) -> io_lib:format("~s: PING ~s", [N, M]);
+pretty(#irc_general{name=N, command=C, message=M}) ->
+    io_lib:format("~s: (~s) ~s", [N, C, M]);
 pretty(#irc_unknown{name=N, parts=P}) ->
     io_lib:format("~s: UNKNOWN ~s", [N, string:join(P, " ")]).
 
@@ -255,10 +269,18 @@ is_message(_) -> false.
 is_ping(#irc_ping{}) -> true;
 is_ping(_) -> false.
 
+is_general(#irc_general{}) -> true;
+is_general(_) -> false.
+
 %% message getters
 message_name(#irc_message{name=N}) -> N.
 message_channel(#irc_message{channel=C}) -> C.
 message_text(#irc_message{text=T}) -> T.
+
+%% general getters
+general_name(#irc_general{name=N}) -> N.
+general_command(#irc_general{command=C}) -> C.
+general_message(#irc_general{message=M}) -> M.
 
 %% ping getters
 ping_name(#irc_ping{name=N}) -> N.
@@ -287,4 +309,5 @@ add_name(E=#irc_error{}, N) -> E#irc_error{name = N};
 add_name(R=#irc_reply{}, N) -> R#irc_reply{name = N};
 add_name(M=#irc_message{}, N) -> M#irc_message{name = N};
 add_name(P=#irc_ping{}, N) -> P#irc_ping{name = N};
+add_name(G=#irc_general{}, N) -> G#irc_general{name = N};
 add_name(U=#irc_unknown{}, N) -> U#irc_unknown{name = N}.
