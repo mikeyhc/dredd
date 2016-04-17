@@ -40,6 +40,13 @@
 %% ping getters
 -export([ping_name/1, ping_message/1]).
 
+%% reply getters
+-export([reply_name/1, reply_code/1, reply_target/1, reply_parts/1]).
+
+%% types
+-export_type([irc_error/0, irc_reply/0, irc_message/0, irc_ping/0]).
+-export_type([irc_general/0, irc_unknown/0]).
+
 -type irc_error_code() :: 401..407 | 409 | 411..414 | 421..424
                         | 431..433 | 436 | 441..446 | 451 | 461..465
                         | 467 | 471..475 | 481..483 | 491 | 501 | 502.
@@ -223,13 +230,21 @@ parse_response([$:|Resp]) ->        % contains name
 parse_response(Resp) -> parse_tokens(string:tokens(Resp, " ")).
 
 parse_tokens([Num=[NH|_],T|P]) when NH >= $4 andalso NH =< $5 ->
-    {Code, []} = string:to_integer(Num),
+    {Code, Rest} = string:to_integer(Num),
+    case Rest of
+        [] -> ok;
+        _  -> io:format("warning: remaining string ~w", [Rest])
+    end,
     #irc_error{ code   = Code,
                 target = T,
                 parts  = P
               };
 parse_tokens([Num=[NH|_],T|P]) when NH >= $2 andalso NH =< $3 ->
-    {Code, []} = string:to_integer(Num),
+    {Code, Rest} = string:to_integer(Num),
+    case Rest of
+        [] -> ok;
+        _  -> io:format("warning: remaining string ~w", [Rest])
+    end,
     #irc_reply{ code   = Code,
                 target = T,
                 parts  = P
@@ -241,6 +256,10 @@ parse_tokens(["PRIVMSG",C,[$:|H]|T]) ->
                 };
 parse_tokens(["JOIN"|Parts]) ->
     #irc_general{ command = "JOIN",
+                  message = string:join(Parts, " ")
+                };
+parse_tokens(["NICK"|Parts]) ->
+    #irc_general{ command = "NICK",
                   message = string:join(Parts, " ")
                 };
 parse_tokens(Parts) -> #irc_unknown{parts = Parts}.
@@ -285,6 +304,12 @@ general_message(#irc_general{message=M}) -> M.
 %% ping getters
 ping_name(#irc_ping{name=N}) -> N.
 ping_message(#irc_ping{message=M}) -> M.
+
+%% reply getters
+reply_name(#irc_reply{name=N}) -> N.
+reply_code(#irc_reply{code=C}) -> C.
+reply_target(#irc_reply{target=T}) -> T.
+reply_parts(#irc_reply{parts=P}) -> P.
 
 %% Helper Functions
 -spec join_with(char(), string(), string()) -> string().

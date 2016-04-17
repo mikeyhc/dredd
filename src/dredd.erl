@@ -29,7 +29,7 @@
 -record(state, {connections = [] :: [{pid(), string(), integer()}],
                 plugins     = [] :: [{pid(), string()}],
                 start_time       :: timestamp(),
-                admins      = [] :: [string()]
+                admins      = [] :: [{string(), string()}]
                }).
 
 %% API
@@ -90,23 +90,40 @@ handle_message(Conn, Msg, State) ->
     io:format("M ~s~n", [dredd_irc:pretty(Msg)]),
     State1 = case dredd_irc:is_message(Msg) of
         true  -> handle_privmsg(Conn, Msg, State);
-        false -> State
+        false -> case dredd_irc:is_general(Msg) of
+            true  -> handle_general(Conn, Msg, State);
+            false -> case dredd_irc:is_reply(Msg) of
+                true  -> handle_reply(Conn, Msg, State);
+                false -> State
+            end
+        end
     end,
-    State2 = case dredd_irc:is_general(Msg) of
-        true  -> handle_general(Conn, Msg, State1);
-        false -> State1
-    end,
-    {noreply, State2}.
+    {noreply, State1}.
 
 send_message(#connection{registered=true, pid=Pid}, Msg) ->
     dredd_conn:send(Pid, Msg);
 send_message(_, _) -> false.
 
+handle_reply(Conn, Reply, State) ->
+    handle_reply(dredd_irc:reply_code(Reply), Conn, Reply, State).
+
+handle_reply(352, Conn, Reply, State) ->
+    [_,U,H,_,N|_] = dredd_irc:reply_parts(Reply),
+    User = lists:flatten(io_lib:format("~s@~s", [U, H])),
+    add_user(N, User, Conn, State);
+handle_reply(_, _, _, State) -> State.
+
 handle_general(Conn, Msg, State) ->
     case dredd_irc:general_command(Msg) of
-        "JOIN"  -> whoquery(Conn)
-    end,
-    State.
+        "JOIN" ->
+            whoquery(Conn),
+            State;
+        "NICK" ->
+            [_|User] = lists:dropwhile(fun(X) -> X =/= $! end,
+                                       dredd_irc:general_name(Msg)),
+            Nick = trim(dredd_irc:general_message(Msg)),
+            update_user(Nick, User, Conn, State)
+    end.
 
 handle_privmsg(Conn, Msg, State) ->
     Chan = dredd_irc:message_channel(Msg),
@@ -141,7 +158,7 @@ handle_privmsg(Conn, Chan, "dredd" ++ Text, Mesg, State) ->
 handle_privmsg(_, _, _, _, State) -> State.
 
 parse_message("uptime", Conn, Chan, _Mesg, State) ->
-    % FIXME: no counting the mega seonds
+    % FIXME: not counting the mega seconds
     {_, SS, _} = State#state.start_time,
     {_, NS, _} = erlang:now(),
     S = NS - SS,
@@ -155,6 +172,10 @@ parse_message("uptime", Conn, Chan, _Mesg, State) ->
              true -> io_lib:format("~ws", [Sec])
           end,
     send_message(Conn, dredd_irc:privmsg("dredd", Chan, Str)),
+    State;
+parse_message("eversion", Conn, Chan, _Mesg, State) ->
+    send_message(Conn, dredd_irc:privmsg("dredd", Chan,
+                                         erlang:system_info(system_version))),
     State;
 parse_message(_, Conn, Chan, _Mesg, State) ->
     i_am_the_law(Conn, Chan),
@@ -172,6 +193,29 @@ register(Conn=#connection{pid=Pid, nick=Nick}) ->
 
 whoquery(#connection{pid=Pid, nick=Nick}) ->
     dredd_conn:send(Pid, dredd_irc:who(Nick)).
+
+add_user(Nick, User, Conn=#connection{pid=Pid, usermap=UM0}, State) ->
+    case lists:keyfind(Nick, 1, UM0) of
+        {_, _} -> update_user(Nick, User, Conn, State);
+        false ->
+            case lists:keyfind(User, 2, UM0) of
+                {_, _} -> update_user(Nick, User, Conn, State);
+                false ->
+                    io:format("adding user ~s with nick ~s~n", [User, Nick]),
+                    UM1 = [{Nick, User}|UM0],
+                    Conns = lists:keyreplace(Pid, 2, State#state.connections,
+                                             Conn#connection{usermap=UM1}),
+                    State#state{connections=Conns}
+            end
+    end.
+
+update_user(Nick, User, Conn=#connection{pid=Pid, usermap=UM0}, State) ->
+    UM1 = lists:keyreplace(User, 2, UM0, {Nick, User}),
+    Conns = lists:keyreplace(Pid, 2, State#state.connections,
+                             Conn#connection{usermap=UM1}),
+    io:format("updating user ~s with nick ~s~n", [User, Nick]),
+    io:format("current array ~p~n", [UM1]),
+    State#state{connections=Conns}.
 
 trim([$:|T]) -> trim_rem(T);
 trim([$ |T]) -> trim_rem(T);
