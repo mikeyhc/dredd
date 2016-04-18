@@ -109,7 +109,9 @@ tcp_loop(State={_, Host, _, Sock, _, Pids}) ->
                                 end
                         end,
             Msgs = lists:reverse(lists:foldl(SendPings, [], AllMsgs)),
-            SFun =  fun(X) ->
+            SFun =  fun({error, Type}) ->
+                            io:format("message error: ~w~n", Type);
+                       (X) ->
                             Send = fun(Y) -> dredd:message(X, Y) end,
                             lists:foreach(Send, Msgs)
                     end,

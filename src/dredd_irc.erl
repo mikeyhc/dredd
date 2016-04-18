@@ -223,10 +223,14 @@ ison(H, [NH=[_|_]|NT]) ->
 ison(H, N) -> ison(H, [N]).
 
 %% response parsing
--spec parse_response(string()) -> irc_response().
+-spec parse_response(string()) -> {error, empty_message} | irc_response().
 parse_response([$:|Resp]) ->        % contains name
-    [Name|Tokens] = string:tokens(Resp, " "),       %% TODO: smarter split
-    add_name(parse_tokens(Tokens), Name);
+    case Resp of
+        [] -> {error, empty_message};
+        _  ->
+            [Name|Tokens] = string:tokens(Resp, " "),   %% TODO: smarter split
+            add_name(parse_tokens(Tokens), Name)
+    end;
 parse_response(Resp) -> parse_tokens(string:tokens(Resp, " ")).
 
 parse_tokens([Num=[NH|_],T|P]) when NH >= $4 andalso NH =< $5 ->
@@ -274,7 +278,9 @@ pretty(#irc_ping{name=N, message=M}) -> io_lib:format("~s: PING ~s", [N, M]);
 pretty(#irc_general{name=N, command=C, message=M}) ->
     io_lib:format("~s: (~s) ~s", [N, C, M]);
 pretty(#irc_unknown{name=N, parts=P}) ->
-    io_lib:format("~s: UNKNOWN ~s", [N, string:join(P, " ")]).
+    io_lib:format("~s: UNKNOWN ~s", [N, string:join(P, " ")]);
+pretty({error, Type}) ->
+    io_lib:format("message error: ~w", [Type]).
 
 is_error(#irc_error{}) -> true;
 is_error(_) -> false.
